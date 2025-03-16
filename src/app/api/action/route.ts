@@ -1,6 +1,7 @@
-import { ActionGetResponse, ActionPostRequest, ActionPostResponse, ACTIONS_CORS_HEADERS, createPostResponse } from "@solana/actions";
-import { clusterApiUrl, Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { CompressedTokenProgram } from "@lightprotocol/compressed-token";
+import { ActionGetResponse, ActionPostRequest, ACTIONS_CORS_HEADERS, createPostResponse } from "@solana/actions";
+import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { createRpc, bn } from '@lightprotocol/stateless.js';
+import { CompressedTokenProgram } from '@lightprotocol/compressed-token';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
     links: {
       actions: [
         {
-          label: "Compress Token",
+          label: "Mint Compressed Token",
           href: `${url.href}?amount=1000`,
           type: "transaction"
         }
@@ -38,16 +39,19 @@ export async function POST(request: Request) {
       return new Response("Invalid account", { status: 400, headers: ACTIONS_CORS_HEADERS });
     }
 
-    const connection = new Connection(clusterApiUrl("mainnet-beta"), "confirmed");
+    // Connect to Light Protocol RPC
+    const RPC_ENDPOINT =  'https://mainnet.helius-rpc.com/?api-key=b9d5f51e-180d-4822-84f4-664cfe7c8f56';
+    const connection = createRpc(RPC_ENDPOINT, RPC_ENDPOINT, RPC_ENDPOINT);
     
-    // Create a new transaction
-    const transaction = new Transaction();
-    
-    // Generate a new keypair for the mint address
+    // Create a mint keypair - will need to be included in the response
     const mintKeypair = Keypair.generate();
     const mintAddress = mintKeypair.publicKey;
     
-    // Get rent exempt balance
+    // Convert amount to the proper format using bn helper
+    const tokenAmount = bn(amount * 10 ** decimals);
+    
+    // Create a new transaction
+    const transaction = new Transaction();
     const rentExemptBalance = await connection.getMinimumBalanceForRentExemption(82);
     
     // 1. Create the mint instruction
@@ -71,7 +75,8 @@ export async function POST(request: Request) {
       amount: amount,
     });
     
-    // Add both instructions to the transaction
+    
+    // Add instructions to the transaction
     if (Array.isArray(createMintInstructions)) {
       createMintInstructions.forEach(ix => transaction.add(ix));
     } else {
@@ -79,20 +84,12 @@ export async function POST(request: Request) {
     }
     transaction.add(mintToIx);
 
-    // Get recent blockhash for the transaction
+    // Get recent blockhash
     const blockhash = await connection.getLatestBlockhash();
     transaction.recentBlockhash = blockhash.blockhash;
-    transaction.lastValidBlockHeight = blockhash.lastValidBlockHeight;
     transaction.feePayer = user;
 
-    // Create response with information about the new mint
-    const mintInfo = {
-      mintAddress: mintAddress.toString(),
-      tokenAmount: amount,
-      decimals: decimals,
-      owner: user.toString()
-    };
-
+    // Add the mint keypair to the response so the client can sign and save it
     const response = await createPostResponse({
       fields: {
         transaction: transaction,
