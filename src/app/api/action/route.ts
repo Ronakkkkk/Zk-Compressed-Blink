@@ -130,16 +130,19 @@ export async function POST(request: Request) {
     );
 
     // Instruction 3: Create the user's ATA
-    transaction.add(
-      createAssociatedTokenAccountInstruction(
-        user, // Payer
-        ata, // ATA address
-        user, // Owner
-        mint.publicKey, // Mint
-        TOKEN_2022_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
-    );
+    const accountInfo = await connection.getAccountInfo(ata);
+    if (!accountInfo) {
+      transaction.add(
+        createAssociatedTokenAccountInstruction(
+          user, // Payer
+          ata, // ATA address
+          user, // Owner
+          mint.publicKey, // Mint
+          TOKEN_2022_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )
+      );
+    }
 
     // Instruction 4: Mint SPL tokens to the user's ATA
     const tokenAmount = new BN(amount).mul(new BN(10).pow(new BN(decimals)));
