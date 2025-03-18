@@ -158,17 +158,34 @@ export async function POST(request: Request) {
     );
 
   
-     const compressIx = await CompressedTokenProgram.compress({
-        payer: user,
-        owner: user,
-        source: ata, // Source is the user's ATA (SPL tokens)
-        toAddress: user, // Compressed tokens go to user's public key
-        mint: mint.publicKey,
-        amount: tokenAmount,
-        outputStateTree: OUTPUT_STATE_TREE,
-      })
-    
-      transaction.add(compressIx)
+    // Before adding the compress instruction:
+console.log("Compress instruction parameters:", {
+  payer: user.toBase58(),
+  owner: user.toBase58(),
+  source: ata.toBase58(),
+  toAddress: user.toBase58(),
+  mint: mint.publicKey.toBase58(),
+  amount: tokenAmount.toString(),
+  outputStateTree: OUTPUT_STATE_TREE.toBase58()
+});
+
+try {
+  const compressIx = await CompressedTokenProgram.compress({
+    payer: user,
+    owner: user,
+    source: ata,
+    toAddress: user,
+    mint: mint.publicKey,
+    amount: tokenAmount,
+    outputStateTree: OUTPUT_STATE_TREE,
+    tokenProgramId: TOKEN_2022_PROGRAM_ID
+  });
+  
+  transaction.add(compressIx);
+} catch (error) {
+  console.error("Error creating compress instruction:", error);
+  throw error;
+}
 
     
 
