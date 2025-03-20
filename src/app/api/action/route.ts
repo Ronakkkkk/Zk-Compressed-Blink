@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       )
     );
 
-    // 2. Create the Associated Token Account if it doesn't exist
+    // 2. Creates the Associated Token Account if it doesn't exist
     transaction.add(
       createAssociatedTokenAccountInstruction(
         user, // Payer
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
       )
     );
 
-    // 3. Mint tokens to the user's ATA
+    // 3. Mints tokens to the user's ATA
     transaction.add(
       createMintToInstruction(
         mint.publicKey, // Mint
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
       )
     );
 
-    // Set blockhash and fee payer
+    // Sets blockhash and fee payer
     const { blockhash } = await connection.getLatestBlockhash();
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = user;
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     // Partial sign with mint keypair
     transaction.partialSign(mint);
 
-    // Create response
+    // Creates response
     const response = await createPostResponse({
       fields: {
         transaction: transaction,
