@@ -1,33 +1,30 @@
 import { ActionGetResponse, ActionPostRequest, ACTIONS_CORS_HEADERS, createPostResponse } from "@solana/actions";
 import { Keypair, PublicKey, Transaction, SystemProgram } from "@solana/web3.js";
 import { createRpc } from "@lightprotocol/stateless.js";
-import { CompressedTokenProgram } from "@lightprotocol/compressed-token"; // Assuming this exposes the instruction methods
 import {
   getAssociatedTokenAddress,
   createMintToInstruction,
-  TOKEN_2022_PROGRAM_ID,
-  createInitializeMetadataPointerInstruction,
+  TOKEN_PROGRAM_ID,
   createInitializeMintInstruction,
-  ExtensionType,
-  getMintLen,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
 } from "@solana/spl-token";
-import { createInitializeInstruction, pack, TokenMetadata } from "@solana/spl-token-metadata";
-import { BN } from "bn.js"; // For handling big numbers
+
+// Constants
+const DECIMALS = 9;
+const RPC_ENDPOINT = "https://mainnet.helius-rpc.com/?api-key=b9d5f51e-180d-4822-84f4-664cfe7c8f56";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
 
   const actionMetadata: ActionGetResponse = {
     icon: "https://cdn.prod.website-files.com/636e894daa9e99940a604aef/66a0c396c60f181c53734c94_Add%20Solana%20to%20MetaMask%20(5).webp",
-    title: "Compress Token",
-    description: "Mint and receive compressed tokens via Light Protocol",
-    label: "Get Compressed",
+    title: "Mint Compressed Tokens",
+    description: "Mint and receive compressed tokens directly into your wallet.",
+    label: "Mint Compressed Tokens",
     links: {
       actions: [
         {
-          label: "Get Compressed Tokens",
+          label: "Mint compressed tokens",
           href: `${url.href}?amount=1000`,
           type: "transaction",
         },
@@ -40,164 +37,90 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    // Parse request data
     const url = new URL(request.url);
     const amount = Number(url.searchParams.get("amount")) || 1000;
-    const decimals = 9;
     const body: ActionPostRequest = await request.json();
 
+    // Validate user public key
     let user;
     try {
-      user = new PublicKey(body.account); // User's public key from the request
+      user = new PublicKey(body.account);
     } catch (error) {
       return new Response("Invalid account", { status: 400, headers: ACTIONS_CORS_HEADERS });
     }
 
-    const RPC_ENDPOINT = "https://mainnet.helius-rpc.com/?api-key=b9d5f51e-180d-4822-84f4-664cfe7c8f56";
+    // Setup connection
     const connection = createRpc(RPC_ENDPOINT, RPC_ENDPOINT, RPC_ENDPOINT);
 
-    // Generate a new mint keypair
+    // Generate mint keypair
     const mint = Keypair.generate();
+    
+    // Calculate space for mint and required lamports
+    const MINT_SIZE = 82;
+    const mintRent = await connection.getMinimumBalanceForRentExemption(MINT_SIZE);
 
-    // Define token metadata
-    const metadata: TokenMetadata = {
-      mint: mint.publicKey,
-      name: "CompressedToken",
-      symbol: "CTK",
-      uri: "https://example.com/token-metadata.json",
-      additionalMetadata: [["createdBy", "Blink"]],
-    };
-
-    // Calculate space for mint and metadata
-    const mintLen = getMintLen([ExtensionType.MetadataPointer]);
-    const metadataLen = 2 + 2 + pack(metadata).length;
-    const mintLamports = await connection.getMinimumBalanceForRentExemption(mintLen + metadataLen);
-
-    // Get the user's ATA
+    // Get the user's Associated Token Account
     const ata = await getAssociatedTokenAddress(
       mint.publicKey,
       user,
       false,
-      TOKEN_2022_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID
+      TOKEN_PROGRAM_ID
     );
 
-    // Create the transaction
+    // Create transaction
     const transaction = new Transaction();
 
-    const OUTPUT_STATE_TREE = new PublicKey("smt1NamzXdq4AMqS2fS2F1i5KTYPZRhoHgWx38d8WsT");
-
-    // Instruction 1: Create and initialize the mint
+    // 1. Create and initialize the mint account
     transaction.add(
       SystemProgram.createAccount({
         fromPubkey: user,
         newAccountPubkey: mint.publicKey,
-        space: mintLen,
-        lamports: mintLamports,
-        programId: TOKEN_2022_PROGRAM_ID,
+        space: MINT_SIZE,
+        lamports: mintRent,
+        programId: TOKEN_PROGRAM_ID,
       }),
-      createInitializeMetadataPointerInstruction(
-        mint.publicKey,
-        user,
-        mint.publicKey,
-        TOKEN_2022_PROGRAM_ID
-      ),
       createInitializeMintInstruction(
         mint.publicKey,
-        decimals,
+        DECIMALS,
         user,
         null,
-        TOKEN_2022_PROGRAM_ID
-      ),
-      createInitializeInstruction({
-        programId: TOKEN_2022_PROGRAM_ID,
-        mint: mint.publicKey,
-        metadata: mint.publicKey,
-        name: metadata.name,
-        symbol: metadata.symbol,
-        uri: metadata.uri,
-        mintAuthority: user,
-        updateAuthority: user,
-      })
-    );
-
-    // Instruction 2: Register the mint with CompressedTokenProgram
-    transaction.add(
-      await CompressedTokenProgram.createTokenPool({
-        feePayer: user,
-        mint: mint.publicKey,
-        tokenProgramId: TOKEN_2022_PROGRAM_ID,
-      })
-    );
-
-    // Instruction 3: Create the user's ATA
-    const accountInfo = await connection.getAccountInfo(ata);
-    if (!accountInfo) {
-      transaction.add(
-        createAssociatedTokenAccountInstruction(
-          user, // Payer
-          ata, // ATA address
-          user, // Owner
-          mint.publicKey, // Mint
-          TOKEN_2022_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        )
-      );
-    }
-
-    // Instruction 4: Mint SPL tokens to the user's ATA
-    const tokenAmount = new BN(amount).mul(new BN(10).pow(new BN(decimals)));
-    transaction.add(
-      createMintToInstruction(
-        mint.publicKey,
-        ata,
-        user,
-        amount,
-        [],
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_PROGRAM_ID
       )
     );
 
-  
-    // Before adding the compress instruction:
-console.log("Compress instruction parameters:", {
-  payer: user.toBase58(),
-  owner: user.toBase58(),
-  source: ata.toBase58(),
-  toAddress: user.toBase58(),
-  mint: mint.publicKey.toBase58(),
-  amount: tokenAmount.toString(),
-  outputStateTree: OUTPUT_STATE_TREE.toBase58()
-});
+    // 2. Create the Associated Token Account if it doesn't exist
+    transaction.add(
+      createAssociatedTokenAccountInstruction(
+        user, // Payer
+        ata, // ATA address
+        user, // Owner
+        mint.publicKey, // Mint
+        TOKEN_PROGRAM_ID
+      )
+    );
 
-try {
-  const compressIx = await CompressedTokenProgram.compress({
-    payer: user,
-    owner: user,
-    source: ata,
-    toAddress: user,
-    mint: mint.publicKey,
-    amount: tokenAmount,
-    outputStateTree: OUTPUT_STATE_TREE,
-    tokenProgramId: TOKEN_2022_PROGRAM_ID
-  });
-  
-  transaction.add(compressIx);
-} catch (error) {
-  console.error("Error creating compress instruction:", error);
-  throw error;
-}
+    // 3. Mint tokens to the user's ATA
+    transaction.add(
+      createMintToInstruction(
+        mint.publicKey, // Mint
+        ata, // Destination
+        user, // Authority
+        amount * (10 ** DECIMALS), // Amount adjusted for decimals
+        [], // Multigsig signers (none)
+        TOKEN_PROGRAM_ID
+      )
+    );
 
-    
-
-    // Set recent blockhash and fee payer
+    // Set blockhash and fee payer
     const { blockhash } = await connection.getLatestBlockhash();
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = user;
 
-    // Partial sign with the mint keypair
+    // Partial sign with mint keypair
     transaction.partialSign(mint);
 
-    // Serialize and return the transaction
+    // Create response
     const response = await createPostResponse({
       fields: {
         transaction: transaction,
@@ -208,6 +131,9 @@ try {
     return Response.json(response, { headers: ACTIONS_CORS_HEADERS });
   } catch (error) {
     console.error("Error in POST:", error);
-    return new Response(`Error: ${error}`, { status: 500, headers: ACTIONS_CORS_HEADERS });
+    return new Response(`Error: ${error || "Unknown error"}`, { 
+      status: 500, 
+      headers: ACTIONS_CORS_HEADERS 
+    });
   }
 }
